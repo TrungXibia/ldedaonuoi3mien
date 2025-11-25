@@ -142,7 +142,7 @@ except Exception as e:
     st.stop()
 
 # === 🎯 DÀN NUÔI (MATRIX) ===
-st.title("🎯 DÀN NUÔI (MATRIX 20 NGÀY)")
+st.title("🎯 CHÙM NUÔI (MATRIX 20 NGÀY) SIÊU GÀ'S")
 st.divider()
 
 # Row 1: Nguồn và Miền
@@ -385,3 +385,4 @@ if all_days_data:
         st.dataframe(pd.DataFrame(pending), use_container_width=True)
     else:
         st.success(f"Tuyệt vời! Tất cả các dàn đã nổ trong vòng {MAX_COLS} ngày.")
+
