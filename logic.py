@@ -31,6 +31,29 @@ ZODIAC_DICT = {
     "Hợi":  ["11","23","35","47","59","71","83","95"]
 }
 
+# --- CÁC HÀM LOGIC MỚI (DÀN NHỊ HỢP VÒNG) ---
+def tao_dan_nhi_hop_vong(source_str: str) -> list[str]:
+    """
+    Tạo dàn số từ chuỗi nguồn theo quy tắc vòng:
+    VD: 1234 -> 12, 23, 34, 41 và các số đảo của chúng.
+    """
+    if not source_str or len(source_str) < 2:
+        return []
+    
+    pairs = set()
+    n = len(source_str)
+    
+    for i in range(n):
+        # Lấy số hiện tại và số kế tiếp (nếu cuối thì vòng về đầu)
+        c1 = source_str[i]
+        c2 = source_str[(i + 1) % n]
+        
+        pairs.add(c1 + c2)
+        pairs.add(c2 + c1)
+        
+    return sorted(list(pairs))
+
+# --- CÁC HÀM TRA CỨU CƠ BẢN ---
 def bo(db: str) -> str:
     db = db.zfill(2)
     if db in BO_DICT: return db
@@ -66,6 +89,7 @@ def zodiac(pair: str) -> str:
     p = pair.zfill(2)
     return next((a for a, lst in ZODIAC_DICT.items() if p in lst), "-")
 
+# --- CÁC HÀM HỖ TRỢ HIỂN THỊ ---
 def doc_so_chu(so):
     so = str(so)
     map_chu = {
@@ -135,13 +159,10 @@ def lay_dan_cham(chuoi_cham):
                 break
     return sorted(set(res))
 
-def tao_dan_lien_tiep(source_str: str) -> list:
-    if not source_str or len(source_str) < 2:
-        return []
-    dan = set()
-    for i in range(len(source_str) - 1):
-        pair = source_str[i:i+2]
-        if pair.isdigit():
-            dan.add(pair)
-            dan.add(pair[::-1])
-    return sorted(list(dan))
+def lay_nhi_hop(bet_digits, digits_2_dong):
+    unique_digits = sorted(set(digits_2_dong))
+    nh = []
+    for a, b in combinations(unique_digits, 2):
+        if a in bet_digits or b in bet_digits:
+            nh += [a + b, b + a]
+    return sorted(set(nh))
