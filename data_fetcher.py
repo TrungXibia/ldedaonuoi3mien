@@ -88,10 +88,8 @@ def get_all_stations_in_region(region: str) -> List[str]:
     return sorted(list(stations))
 
 def _extract_loto(prize_content: str) -> List[str]:
-    """Helper: Tách các số 2 số cuối từ chuỗi giải (có thể chứa nhiều số cách nhau bởi dấu phẩy)"""
     if not prize_content:
         return []
-    # Tách theo dấu phẩy hoặc các ký tự ngăn cách thông thường
     raw_nums = re.split(r'[,\s-]+', prize_content)
     lotos = []
     for n in raw_nums:
@@ -125,8 +123,6 @@ def fetch_station_data(station_name: str, total_days: int = 60) -> List[Dict]:
             
             try:
                 prizes = json.loads(detail)
-                # prizes: 0=DB, 1=G1 ... 6=G6, 7=G7, 8=G8
-                
                 result = {
                     "date": turn_num,
                     "db": prizes[0] if len(prizes) > 0 else "",
@@ -136,14 +132,12 @@ def fetch_station_data(station_name: str, total_days: int = 60) -> List[Dict]:
                     "g8": prizes[8] if len(prizes) > 8 else "",
                 }
                 
-                # Tách lô tô (2 số cuối) cho các giải cần thiết
-                result["db_2so"] = _extract_loto(result["db"]) # Trả về list
+                result["db_2so"] = _extract_loto(result["db"])
                 result["g1_2so"] = _extract_loto(result["g1"])
                 result["g6_2so"] = _extract_loto(result["g6"])
                 result["g7_2so"] = _extract_loto(result["g7"])
                 result["g8_2so"] = _extract_loto(result["g8"])
                 
-                # Làm phẳng db và g1 vì thường chỉ có 1 số, nhưng giữ format list cho đồng nhất
                 result["db_2so"] = result["db_2so"][0] if result["db_2so"] else ""
                 result["g1_2so"] = result["g1_2so"][0] if result["g1_2so"] else ""
 
@@ -221,7 +215,6 @@ def fetch_than_tai(total_days: int) -> List[Dict]:
     return data
 
 def _parse_congcuxoso_loto(url: str, total_days: int) -> List[List[str]]:
-    """Parse trả về list các số lô tô (2 số cuối) cho mỗi ngày"""
     soup = fetch_url(url)
     all_days_nums = []
     if not soup: return all_days_nums
@@ -236,26 +229,18 @@ def _parse_congcuxoso_loto(url: str, total_days: int) -> List[List[str]]:
                 for cell in reversed(cells):
                     t = cell.text.strip()
                     if t and t not in ("-----", "\xa0"):
-                        # Xử lý chuỗi có thể chứa nhiều số hoặc ký tự lạ
                         cleaned = ''.join(filter(str.isdigit, t))
                         if len(cleaned) >= 2:
-                            # Lấy 2 số cuối
                             day_nums.append(cleaned[-2:])
                 all_days_nums.append(day_nums)
     except Exception: pass
     return all_days_nums[:total_days]
 
 def _parse_congcuxoso_single(url: str, total_days: int) -> List[str]:
-    """Parse trả về 1 số duy nhất (ví dụ ĐB)"""
     raw_list = _parse_congcuxoso_loto(url, total_days)
-    # Lấy số đầu tiên trong list mỗi ngày (vì ĐB/G1 ở đây thường chỉ có 1 ô)
     return [d[0] if d else "" for d in raw_list]
 
 def fetch_xsmb_group(total_days: int) -> Tuple[List[str], List[str], List[List[str]]]:
-    """
-    Fetch XSMB: ĐB, G1, và G7
-    Returns: (List ĐB, List G1, List [G7 numbers])
-    """
     with concurrent.futures.ThreadPoolExecutor() as executor:
         f_db = executor.submit(_parse_congcuxoso_single, 
                             "https://congcuxoso.com/MienBac/DacBiet/PhoiCauDacBiet/PhoiCauTuan5So.aspx", total_days)
@@ -265,4 +250,3 @@ def fetch_xsmb_group(total_days: int) -> Tuple[List[str], List[str], List[List[s
                             "https://congcuxoso.com/MienBac/GiaiBay/PhoiCauGiaiBay/PhoiCauTuan5So.aspx", total_days)
         
         return f_db.result(), f_g1.result(), f_g7.result()
-
