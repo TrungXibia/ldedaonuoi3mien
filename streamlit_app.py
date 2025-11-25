@@ -1,5 +1,3 @@
---- START OF FILE streamlit_app.py ---
-
 import streamlit as st
 import pandas as pd
 import logic
@@ -350,3 +348,4 @@ if all_days_data:
         st.dataframe(pd.DataFrame(pending), use_container_width=True)
     else:
         st.success("Tất cả các dàn trong khung hiển thị đều đã nổ!")
+
