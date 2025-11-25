@@ -1,3 +1,5 @@
+--- START OF FILE data_fetcher.py ---
+
 import requests
 import concurrent.futures
 from bs4 import BeautifulSoup
@@ -5,6 +7,7 @@ import logging
 import time
 from typing import List, Dict, Tuple
 import json
+import re
 
 logging.basicConfig(level=logging.INFO)
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
@@ -69,16 +72,6 @@ LICH_QUAY_TRUNG = {
 }
 
 def get_stations_by_day(region: str, day: str) -> List[str]:
-    """
-    Get list of lottery stations for a specific region and day.
-    
-    Args:
-        region: "Miền Nam" or "Miền Trung"
-        day: Day of week (e.g., "Thứ 2", "Chủ Nhật")
-    
-    Returns:
-        List of station names
-    """
     if region == "Miền Nam":
         return LICH_QUAY_NAM.get(day, [])
     elif region == "Miền Trung":
@@ -86,119 +79,95 @@ def get_stations_by_day(region: str, day: str) -> List[str]:
     return []
 
 def get_all_stations_in_region(region: str) -> List[str]:
-    """
-    Get all unique stations for a region across all days.
-    """
     stations = set()
     schedule = {}
     if region == "Miền Nam":
         schedule = LICH_QUAY_NAM
     elif region == "Miền Trung":
         schedule = LICH_QUAY_TRUNG
-        
     for day_stations in schedule.values():
         stations.update(day_stations)
-        
     return sorted(list(stations))
 
+def _extract_loto(prize_content: str) -> List[str]:
+    """Helper: Tách các số 2 số cuối từ chuỗi giải (có thể chứa nhiều số cách nhau bởi dấu phẩy)"""
+    if not prize_content:
+        return []
+    # Tách theo dấu phẩy hoặc các ký tự ngăn cách thông thường
+    raw_nums = re.split(r'[,\s-]+', prize_content)
+    lotos = []
+    for n in raw_nums:
+        if n and n.isdigit():
+            lotos.append(n[-2:])
+    return lotos
+
 def fetch_station_data(station_name: str, total_days: int = 60) -> List[Dict]:
-    """
-    Fetch lottery data for a specific station from API.
-    
-    Args:
-        station_name: Name of the station (e.g., "An Giang")
-        total_days: Number of days to fetch
-    
-    Returns:
-        List of lottery results with date and prizes
-    """
     url_template = DAI_API.get(station_name)
     if not url_template:
-        logging.error(f"No API URL found for station: {station_name}")
         return []
     
-    # Replace limitNum=60 with limitNum={total_days}
     url = url_template.replace("limitNum=60", f"limitNum={total_days}")
     
     try:
         response = requests.get(url, headers=HEADERS, timeout=10)
-        response.raise_for_status()
         data = response.json()
         
         if not data.get("success"):
-            logging.error(f"API returned error for {station_name}")
             return []
         
         issue_list = data.get("t", {}).get("issueList", [])
         results = []
         
         for issue in issue_list[:total_days]:
-            turn_num = issue.get("turnNum", "")  # Format: "20/11/2025"
+            turn_num = issue.get("turnNum", "")
             detail = issue.get("detail", "")
             
             if not turn_num or not detail:
                 continue
             
             try:
-                # Parse detail JSON array
                 prizes = json.loads(detail)
+                # prizes: 0=DB, 1=G1 ... 6=G6, 7=G7, 8=G8
                 
-                # Extract prizes based on structure
-                # prizes[0] = ĐB, prizes[1] = G1, etc.
                 result = {
                     "date": turn_num,
-                    "db": prizes[0] if len(prizes) > 0 else "",  # Đặc Biệt
-                    "g1": prizes[1] if len(prizes) > 1 else "",  # Giải Nhất
-                    "g2": prizes[2] if len(prizes) > 2 else "",  # Giải Nhì
-                    "g3": prizes[3] if len(prizes) > 3 else "",  # Giải Ba (2 số)
-                    "g4": prizes[4] if len(prizes) > 4 else "",  # Giải Tư (7 số)
-                    "g5": prizes[5] if len(prizes) > 5 else "",  # Giải Năm
-                    "g6": prizes[6] if len(prizes) > 6 else "",  # Giải Sáu (3 số)
-                    "g7": prizes[7] if len(prizes) > 7 else "",  # Giải Bảy
-                    "g8": prizes[8] if len(prizes) > 8 else "",  # Giải Tám
+                    "db": prizes[0] if len(prizes) > 0 else "",
+                    "g1": prizes[1] if len(prizes) > 1 else "",
+                    "g6": prizes[6] if len(prizes) > 6 else "",
+                    "g7": prizes[7] if len(prizes) > 7 else "",
+                    "g8": prizes[8] if len(prizes) > 8 else "",
                 }
                 
-                # Extract 2-digit numbers (lô) from ĐB and G1
-                result["db_2so"] = result["db"][-2:] if result["db"] else ""
-                result["g1_2so"] = result["g1"][-2:] if result["g1"] else ""
+                # Tách lô tô (2 số cuối) cho các giải cần thiết
+                result["db_2so"] = _extract_loto(result["db"]) # Trả về list
+                result["g1_2so"] = _extract_loto(result["g1"])
+                result["g6_2so"] = _extract_loto(result["g6"])
+                result["g7_2so"] = _extract_loto(result["g7"])
+                result["g8_2so"] = _extract_loto(result["g8"])
                 
+                # Làm phẳng db và g1 vì thường chỉ có 1 số, nhưng giữ format list cho đồng nhất
+                result["db_2so"] = result["db_2so"][0] if result["db_2so"] else ""
+                result["g1_2so"] = result["g1_2so"][0] if result["g1_2so"] else ""
+
                 results.append(result)
                 
-            except json.JSONDecodeError as e:
+            except Exception as e:
                 logging.error(f"Error parsing detail for {station_name}: {e}")
                 continue
         
         return results
         
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Error fetching data for {station_name}: {e}")
-        return []
     except Exception as e:
-        logging.error(f"Unexpected error for {station_name}: {e}")
+        logging.error(f"Error fetching data for {station_name}: {e}")
         return []
 
 def fetch_url(url: str, max_retries: int = 3) -> BeautifulSoup:
-    """
-    Fetch URL with retry logic and better error handling.
-    
-    Args:
-        url: URL to fetch
-        max_retries: Maximum number of retry attempts
-        
-    Returns:
-        BeautifulSoup object or None if failed
-    """
     for attempt in range(max_retries):
         try:
             r = requests.get(url, headers=HEADERS, timeout=10)
             r.raise_for_status()
             return BeautifulSoup(r.text, "html.parser")
-        except requests.exceptions.Timeout:
-            logging.warning(f"Timeout loading {url}, attempt {attempt + 1}/{max_retries}")
-            if attempt < max_retries - 1:
-                time.sleep(1)  # Wait before retry
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Error loading {url}: {e}")
+        except Exception:
             if attempt < max_retries - 1:
                 time.sleep(1)
             else:
@@ -206,124 +175,95 @@ def fetch_url(url: str, max_retries: int = 3) -> BeautifulSoup:
     return None
 
 def _normalize_date(date_str: str) -> str:
-    """
-    Normalize date string from 'Thứ Hai ngày 24-11-2025' to '24/11/2025'.
-    Also handles '24-11-2025' -> '24/11/2025'.
-    """
     try:
-        # Remove "Thứ ... ngày " prefix if present
         if "ngày" in date_str:
             date_str = date_str.split("ngày")[-1].strip()
-        
-        # Replace - with /
         return date_str.replace("-", "/")
     except:
         return date_str
 
 def fetch_dien_toan(total_days: int) -> List[Dict]:
-    """Fetch Điện Toán 123 data with validation."""
     soup = fetch_url(f"https://ketqua04.net/so-ket-qua-dien-toan-123/{total_days}")
     data = []
-    
-    if not soup:
-        logging.error("Failed to fetch Điện Toán data")
-        return data
-        
+    if not soup: return data
     try:
         divs = soup.find_all("div", class_="result_div", id="result_123")
         for div in divs[:total_days]:
             ds = div.find("span", id="result_date")
-            date_raw = ds.text.strip() if ds else ""
-            
-            if not date_raw:
-                continue
-            
-            date = _normalize_date(date_raw)
-                
+            date = _normalize_date(ds.text.strip()) if ds else ""
+            if not date: continue
             tbl = div.find("table", id="result_tab_123")
             if tbl:
                 row = tbl.find("tbody").find("tr")
                 cells = row.find_all("td") if row else []
                 if len(cells) == 3:
-                    nums = [c.text.strip() for c in cells]
-                    # Validate numbers
-                    if all(n.isdigit() for n in nums):
+                    nums = [c.text.strip() for c in cells if c.text.strip().isdigit()]
+                    if len(nums) == 3:
                         data.append({"date": date, "dt_numbers": nums})
-    except Exception as e:
-        logging.error(f"Error parsing Điện Toán data: {e}")
-    
+    except Exception: pass
     return data
 
 def fetch_than_tai(total_days: int) -> List[Dict]:
-    """Fetch Thần Tài data with validation."""
     soup = fetch_url(f"https://ketqua04.net/so-ket-qua-than-tai/{total_days}")
     data = []
-    
-    if not soup:
-        logging.error("Failed to fetch Thần Tài data")
-        return data
-        
+    if not soup: return data
     try:
         divs = soup.find_all("div", class_="result_div", id="result_tt4")
         for div in divs[:total_days]:
             ds = div.find("span", id="result_date")
-            date_raw = ds.text.strip() if ds else ""
-            
-            if not date_raw:
-                continue
-            
-            date = _normalize_date(date_raw)
-                
+            date = _normalize_date(ds.text.strip()) if ds else ""
+            if not date: continue
             tbl = div.find("table", id="result_tab_tt4")
             if tbl:
                 cell = tbl.find("td", id="rs_0_0")
                 num = cell.text.strip() if cell else ""
-                # Validate: should be 4 digits
                 if num.isdigit() and len(num) == 4:
                     data.append({"date": date, "tt_number": num})
-    except Exception as e:
-        logging.error(f"Error parsing Thần Tài data: {e}")
-    
+    except Exception: pass
     return data
 
-def _parse_congcuxoso(url: str, total_days: int) -> List[str]:
-    """Helper function to parse data from congcuxoso with validation."""
+def _parse_congcuxoso_loto(url: str, total_days: int) -> List[List[str]]:
+    """Parse trả về list các số lô tô (2 số cuối) cho mỗi ngày"""
     soup = fetch_url(url)
-    nums = []
+    all_days_nums = []
+    if not soup: return all_days_nums
     
-    if not soup:
-        logging.error(f"Failed to fetch from {url}")
-        return nums
-        
     try:
         tbl = soup.find("table", id="MainContent_dgv")
         if tbl:
-            rows = tbl.find_all("tr")[1:]  # Skip header
+            rows = tbl.find_all("tr")[1:]
             for row in reversed(rows):
                 cells = row.find_all("td")
+                day_nums = []
                 for cell in reversed(cells):
                     t = cell.text.strip()
-                    # Validate and clean data
-                    if t and t not in ("-----", "\xa0") and t.replace(" ", "").isdigit():
-                        clean_num = t.replace(" ", "").zfill(5)
-                        nums.append(clean_num)
-    except Exception as e:
-        logging.error(f"Error parsing congcuxoso data: {e}")
-    
-    return nums[:total_days]
+                    if t and t not in ("-----", "\xa0"):
+                        # Xử lý chuỗi có thể chứa nhiều số hoặc ký tự lạ
+                        cleaned = ''.join(filter(str.isdigit, t))
+                        if len(cleaned) >= 2:
+                            # Lấy 2 số cuối
+                            day_nums.append(cleaned[-2:])
+                all_days_nums.append(day_nums)
+    except Exception: pass
+    return all_days_nums[:total_days]
 
-def fetch_xsmb_group(total_days: int) -> Tuple[List[str], List[str]]:
+def _parse_congcuxoso_single(url: str, total_days: int) -> List[str]:
+    """Parse trả về 1 số duy nhất (ví dụ ĐB)"""
+    raw_list = _parse_congcuxoso_loto(url, total_days)
+    # Lấy số đầu tiên trong list mỗi ngày (vì ĐB/G1 ở đây thường chỉ có 1 ô)
+    return [d[0] if d else "" for d in raw_list]
+
+def fetch_xsmb_group(total_days: int) -> Tuple[List[str], List[str], List[List[str]]]:
     """
-    Fetch both ĐB and G1 in parallel for better performance.
-    
-    Returns:
-        Tuple of (ĐB numbers, G1 numbers)
+    Fetch XSMB: ĐB, G1, và G7
+    Returns: (List ĐB, List G1, List [G7 numbers])
     """
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        f1 = executor.submit(_parse_congcuxoso, 
-                            "https://congcuxoso.com/MienBac/DacBiet/PhoiCauDacBiet/PhoiCauTuan5So.aspx", 
-                            total_days)
-        f2 = executor.submit(_parse_congcuxoso, 
-                            "https://congcuxoso.com/MienBac/GiaiNhat/PhoiCauGiaiNhat/PhoiCauTuan5So.aspx", 
-                            total_days)
-        return f1.result(), f2.result()
+        f_db = executor.submit(_parse_congcuxoso_single, 
+                            "https://congcuxoso.com/MienBac/DacBiet/PhoiCauDacBiet/PhoiCauTuan5So.aspx", total_days)
+        f_g1 = executor.submit(_parse_congcuxoso_single, 
+                            "https://congcuxoso.com/MienBac/GiaiNhat/PhoiCauGiaiNhat/PhoiCauTuan5So.aspx", total_days)
+        f_g7 = executor.submit(_parse_congcuxoso_loto, 
+                            "https://congcuxoso.com/MienBac/GiaiBay/PhoiCauGiaiBay/PhoiCauTuan5So.aspx", total_days)
+        
+        return f_db.result(), f_g1.result(), f_g7.result()
