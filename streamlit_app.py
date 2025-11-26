@@ -715,6 +715,24 @@ else:
                          if isinstance(res_list, list):
                              check_results = res_list
                 except:
+                    pass
+            else:
+                idx = i - k
+                if idx >= 0 and idx >= backtest_offset:
+                    check_row = df_region.iloc[idx]
+                    if region == "Miền Bắc":
+                        val_or_list = check_row.get(col_comp, "")
+                        if isinstance(val_or_list, list):
+                            for val in val_or_list:
+                                if val:
+                                    check_results.append({'station': 'XSMB', 'val': val})
+                        else:
+                            val = str(val_or_list)
+                            if val and val != "nan":
+                                check_results.append({'station': 'XSMB', 'val': val})
+                    else:
+                        res_list = check_row.get('results', [])
+                        if isinstance(res_list, list):
                             check_results = res_list
             
             for res in check_results:
